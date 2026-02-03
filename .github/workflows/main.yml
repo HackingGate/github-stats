@@ -17,6 +17,8 @@ jobs:
     steps:
     # Check out repository under $GITHUB_WORKSPACE, so the job can access it
     - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
 
     # Run using Python 3.14
     - name: Set up Python 3.14
@@ -55,14 +57,16 @@ jobs:
           echo "No changes to commit"
           exit 0
         fi
+        # Define the commit message
+        COMMIT_MESSAGE="Update generated files"
         # Check if the last commit message is from this workflow
-        LAST_COMMIT_MSG=$(git log -1 --pretty=%s)
-        if [ "$LAST_COMMIT_MSG" = "Update generated files" ]; then
+        LAST_COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "")
+        if [ "$LAST_COMMIT_MSG" = "$COMMIT_MESSAGE" ]; then
           # Amend the last commit instead of creating a new one
           git commit --amend --no-edit
         else
           # Create a new commit if the last one wasn't from this workflow
-          git commit -m 'Update generated files'
+          git commit -m "$COMMIT_MESSAGE"
         fi
         # Force push to update the remote with the amended commit
         # Using --force-with-lease for safety to prevent overwriting unexpected changes
