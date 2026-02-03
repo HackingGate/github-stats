@@ -55,8 +55,15 @@ jobs:
           echo "No changes to commit"
           exit 0
         fi
-        # Amend the last commit instead of creating a new one
-        git commit --amend --no-edit || git commit -m 'Update generated files'
+        # Check if the last commit message is from this workflow
+        LAST_COMMIT_MSG=$(git log -1 --pretty=%s)
+        if [ "$LAST_COMMIT_MSG" = "Update generated files" ]; then
+          # Amend the last commit instead of creating a new one
+          git commit --amend --no-edit
+        else
+          # Create a new commit if the last one wasn't from this workflow
+          git commit -m 'Update generated files'
+        fi
         # Force push to update the remote with the amended commit
         # Using --force-with-lease for safety to prevent overwriting unexpected changes
-        git push --force-with-lease
+        git push --force-with-lease origin HEAD
