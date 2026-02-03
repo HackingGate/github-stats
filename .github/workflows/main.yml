@@ -50,7 +50,13 @@ jobs:
         git config --global user.name "jstrieb/github-stats"
         git config --global user.email "github-stats[bot]@jstrieb.github.io"
         git add .
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+          exit 0
+        fi
         # Amend the last commit instead of creating a new one
         git commit --amend --no-edit || git commit -m 'Update generated files'
         # Force push to update the remote with the amended commit
-        git push --force
+        # Using --force-with-lease for safety to prevent overwriting unexpected changes
+        git push --force-with-lease
