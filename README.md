@@ -106,6 +106,9 @@ For more information on inaccuracies, see issue
    time. 
    - The images will be automatically regenerated every 24 hours, but they can
      be regenerated manually by running the workflow this way.
+   - The workflow uses `git commit --amend` to avoid cluttering the git history
+     with multiple update commits. Each regeneration will amend the previous
+     commit instead of creating a new one.
 7. Take a look at the images that have been created in the
    [`generated`](generated) folder.
 8. To add your statistics to your GitHub Profile README, copy and paste the
