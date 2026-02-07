@@ -67,7 +67,8 @@ To improve execution time and stay within GitHub Actions' 15-minute limit, this 
 - Repository statistics are cached based on each repository's last push timestamp (`pushedAt`)
 - When a repository hasn't been updated since the last run, cached statistics are reused instead of making new API calls
 - The cache is saved incrementally after each repository is processed, ensuring partial progress is preserved even if execution times out
-- Cache data is stored in `generated/repo_stats_cache.json` (automatically managed, no user action required)
+- Cache data is stored in `generated/repo_stats_cache.json` and persisted between workflow runs using GitHub Actions cache
+- The cache automatically restores from the previous run and saves at the end (even if the workflow fails)
 
 This dramatically reduces execution time for subsequent runs, especially for users with many repositories that don't change frequently.
 
