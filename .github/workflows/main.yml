@@ -39,7 +39,7 @@ jobs:
       uses: actions/cache/restore@v5
       with:
         path: generated/repo_stats_cache.json
-        key: repo-stats-cache
+        key: repo-stats-cache-${{ hashFiles('github_stats.py', 'generate_images.py', 'requirements.txt') }}
 
     # Generate all statistics images
     - name: Generate images
@@ -59,7 +59,7 @@ jobs:
       if: always()
       with:
         path: generated/repo_stats_cache.json
-        key: repo-stats-cache
+        key: repo-stats-cache-${{ hashFiles('github_stats.py', 'generate_images.py', 'requirements.txt') }}
 
     # Commit all changed files to the repository
     - name: Commit to the repo
