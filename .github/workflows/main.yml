@@ -34,13 +34,12 @@ jobs:
         python3 -m pip install --upgrade pip setuptools wheel
         python3 -m pip install -r requirements.txt
 
-    # Download cache artifact from previous run to preserve progress
-    - name: Download cache artifact
-      uses: actions/download-artifact@v7
-      continue-on-error: true
+    # Restore cache from previous run to preserve progress
+    - name: Restore cache
+      uses: actions/cache/restore@v5
       with:
-        name: repo-stats-cache
-        path: .
+        path: generated/repo_stats_cache.json
+        key: repo-stats-cache
 
     # Generate all statistics images
     - name: Generate images
@@ -54,13 +53,13 @@ jobs:
         EXCLUDED_LANGS: ${{ secrets.EXCLUDED_LANGS }}
         EXCLUDE_FORKED_REPOS: true
 
-    # Upload cache as artifact (runs even on timeout to preserve progress)
-    - name: Upload cache artifact
-      uses: actions/upload-artifact@v6
+    # Save cache (runs even on timeout to preserve progress)
+    - name: Save cache
+      uses: actions/cache/save@v5
       if: always()
       with:
-        name: repo-stats-cache
         path: generated/repo_stats_cache.json
+        key: repo-stats-cache
 
     # Commit all changed files to the repository
     - name: Commit to the repo
