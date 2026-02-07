@@ -134,3 +134,6 @@ dmypy.json
 
 # PyCharm project files
 .idea
+
+# Cache files
+generated/repo_stats_cache.json

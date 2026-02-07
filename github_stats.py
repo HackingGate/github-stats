@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import asyncio
+import json
 import os
 from typing import Any, cast
 
@@ -142,6 +143,7 @@ class Queries(object):
       }}
       nodes {{
         nameWithOwner
+        pushedAt
         stargazers {{
           totalCount
         }}
@@ -178,6 +180,7 @@ class Queries(object):
       }}
       nodes {{
         nameWithOwner
+        pushedAt
         stargazers {{
           totalCount
         }}
@@ -273,6 +276,59 @@ class Stats(object):
         self._repos: set[str] | None = None
         self._lines_changed: tuple[int, int] | None = None
         self._views: int | None = None
+        
+        # Cache-related attributes
+        self._cache_file = "generated/repo_stats_cache.json"
+        self._repo_cache: dict[str, dict[str, Any]] = {}
+        self._repo_timestamps: dict[str, str] = {}
+        self._repo_metadata: dict[str, dict[str, Any]] = {}  # Store repo metadata including pushedAt
+        self._load_cache()
+
+    def _load_cache(self) -> None:
+        """
+        Load cached repository statistics from file
+        """
+        if os.path.exists(self._cache_file):
+            try:
+                with open(self._cache_file, "r") as f:
+                    cache_data = json.load(f)
+                    self._repo_cache = cache_data.get("repo_cache", {})
+                    self._repo_timestamps = cache_data.get("repo_timestamps", {})
+                    print(f"Loaded cache with {len(self._repo_cache)} repositories")
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Failed to load cache: {e}")
+                self._repo_cache = {}
+                self._repo_timestamps = {}
+
+    def _save_cache(self) -> None:
+        """
+        Save cached repository statistics to file
+        """
+        # Ensure the generated directory exists
+        os.makedirs(os.path.dirname(self._cache_file), exist_ok=True)
+        
+        try:
+            cache_data = {
+                "repo_cache": self._repo_cache,
+                "repo_timestamps": self._repo_timestamps,
+            }
+            with open(self._cache_file, "w") as f:
+                json.dump(cache_data, f, indent=2)
+        except IOError as e:
+            print(f"Failed to save cache: {e}")
+
+    def _is_repo_cached(self, repo_name: str, pushed_at: str) -> bool:
+        """
+        Check if repository statistics are cached and up-to-date
+        :param repo_name: Full repository name (e.g., "owner/repo")
+        :param pushed_at: ISO 8601 timestamp of last push to the repository
+        :return: True if cached data exists and is up-to-date
+        """
+        return (
+            repo_name in self._repo_cache
+            and repo_name in self._repo_timestamps
+            and self._repo_timestamps[repo_name] == pushed_at
+        )
 
     async def to_str(self) -> str:
         """
@@ -344,6 +400,13 @@ Languages:
                 if name in self._repos or name in self._exclude_repos:
                     continue
                 self._repos.add(name)
+                
+                # Track repository metadata including pushedAt timestamp
+                pushed_at = repo.get("pushedAt", "")
+                self._repo_metadata[name] = {
+                    "pushedAt": pushed_at,
+                }
+                
                 self._stargazers += repo.get("stargazers").get("totalCount", 0)
                 self._forks += repo.get("forkCount", 0)
 
@@ -483,21 +546,54 @@ Languages:
             return self._lines_changed
         additions = 0
         deletions = 0
-        for repo in await self.repos:
-            r = await self.queries.query_rest(f"/repos/{repo}/stats/contributors")
-            for author_obj in r:
-                # Handle malformed response from the API by skipping this repo
-                if not isinstance(author_obj, dict) or not isinstance(
-                    author_obj.get("author", {}), dict
-                ):
-                    continue
-                author = author_obj.get("author", {}).get("login", "")
-                if author != self.username:
-                    continue
+        repos_list = await self.repos
+        total_repos = len(repos_list)
+        processed_count = 0
+        
+        for repo in repos_list:
+            processed_count += 1
+            repo_metadata = self._repo_metadata.get(repo, {})
+            pushed_at = repo_metadata.get("pushedAt", "")
+            
+            # Check if we have cached data for this repo
+            if self._is_repo_cached(repo, pushed_at):
+                cached_data = self._repo_cache[repo]
+                additions += cached_data.get("additions", 0)
+                deletions += cached_data.get("deletions", 0)
+                print(f"Using cached data for {repo} ({processed_count}/{total_repos})")
+            else:
+                # Fetch fresh data from API
+                print(f"Fetching fresh data for {repo} ({processed_count}/{total_repos})")
+                r = await self.queries.query_rest(f"/repos/{repo}/stats/contributors")
+                repo_additions = 0
+                repo_deletions = 0
+                
+                for author_obj in r:
+                    # Handle malformed response from the API by skipping this repo
+                    if not isinstance(author_obj, dict) or not isinstance(
+                        author_obj.get("author", {}), dict
+                    ):
+                        continue
+                    author = author_obj.get("author", {}).get("login", "")
+                    if author != self.username:
+                        continue
 
-                for week in author_obj.get("weeks", []):
-                    additions += week.get("a", 0)
-                    deletions += week.get("d", 0)
+                    for week in author_obj.get("weeks", []):
+                        repo_additions += week.get("a", 0)
+                        repo_deletions += week.get("d", 0)
+                
+                additions += repo_additions
+                deletions += repo_deletions
+                
+                # Cache the result for this repo
+                self._repo_cache[repo] = {
+                    "additions": repo_additions,
+                    "deletions": repo_deletions,
+                }
+                self._repo_timestamps[repo] = pushed_at
+                
+                # Save cache incrementally after processing each repo
+                self._save_cache()
 
         self._lines_changed = (additions, deletions)
         return self._lines_changed
@@ -512,10 +608,40 @@ Languages:
             return self._views
 
         total = 0
-        for repo in await self.repos:
-            r = await self.queries.query_rest(f"/repos/{repo}/traffic/views")
-            for view in r.get("views", []):
-                total += view.get("count", 0)
+        repos_list = await self.repos
+        total_repos = len(repos_list)
+        processed_count = 0
+        
+        for repo in repos_list:
+            processed_count += 1
+            repo_metadata = self._repo_metadata.get(repo, {})
+            pushed_at = repo_metadata.get("pushedAt", "")
+            
+            # Check if we have cached data for this repo
+            # Note: Views are time-sensitive (last 14 days), so we still cache them
+            # but they might be less accurate if the repo hasn't been pushed to recently
+            if self._is_repo_cached(repo, pushed_at) and "views" in self._repo_cache[repo]:
+                cached_views = self._repo_cache[repo].get("views", 0)
+                total += cached_views
+                print(f"Using cached views for {repo} ({processed_count}/{total_repos})")
+            else:
+                # Fetch fresh data from API
+                print(f"Fetching fresh views for {repo} ({processed_count}/{total_repos})")
+                r = await self.queries.query_rest(f"/repos/{repo}/traffic/views")
+                repo_views = 0
+                for view in r.get("views", []):
+                    repo_views += view.get("count", 0)
+                
+                total += repo_views
+                
+                # Update cache for this repo (merge with existing cache data)
+                if repo not in self._repo_cache:
+                    self._repo_cache[repo] = {}
+                self._repo_cache[repo]["views"] = repo_views
+                self._repo_timestamps[repo] = pushed_at
+                
+                # Save cache incrementally after processing each repo
+                self._save_cache()
 
         self._views = total
         return total
