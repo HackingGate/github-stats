@@ -251,6 +251,13 @@ query {{
 class Stats(object):
     """
     Retrieve and store statistics about GitHub usage.
+    
+    This class includes caching functionality to improve performance:
+    - Repository statistics are cached based on the repository's last push timestamp
+    - Cached data is stored in generated/repo_stats_cache.json
+    - Cache is saved incrementally after each repository is processed
+    - If a repository hasn't been updated (same pushedAt timestamp), cached data is reused
+    - This significantly reduces execution time and API calls for unchanged repositories
     """
 
     def __init__(

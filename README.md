@@ -60,6 +60,17 @@ For more information on inaccuracies, see issue
 [#3](https://github.com/jstrieb/github-stats/issues/3), and
 [#13](https://github.com/jstrieb/github-stats/issues/13).
 
+## Performance & Caching
+
+To improve execution time and stay within GitHub Actions' 15-minute limit, this project implements intelligent caching:
+
+- Repository statistics are cached based on each repository's last push timestamp (`pushedAt`)
+- When a repository hasn't been updated since the last run, cached statistics are reused instead of making new API calls
+- The cache is saved incrementally after each repository is processed, ensuring partial progress is preserved even if execution times out
+- Cache data is stored in `generated/repo_stats_cache.json` (automatically managed, no user action required)
+
+This dramatically reduces execution time for subsequent runs, especially for users with many repositories that don't change frequently.
+
 # Installation
 
 <!-- TODO: Add details and screenshots -->
