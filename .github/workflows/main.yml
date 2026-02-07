@@ -40,7 +40,7 @@ jobs:
       continue-on-error: true
       with:
         name: repo-stats-cache
-        path: generated
+        path: .
 
     # Generate all statistics images
     - name: Generate images
