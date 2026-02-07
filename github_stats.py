@@ -288,7 +288,7 @@ class Stats(object):
         self._cache_file = "generated/repo_stats_cache.json"
         self._repo_cache: dict[str, dict[str, Any]] = {}
         self._repo_timestamps: dict[str, str] = {}
-        self._repo_metadata: dict[str, dict[str, Any]] = {}  # Store repo metadata including pushedAt
+        self._repo_metadata: dict[str, dict[str, Any]] = {}
         self._load_cache()
 
     def _load_cache(self) -> None:
@@ -593,8 +593,7 @@ Languages:
                 deletions += repo_deletions
                 
                 # Cache the result for this repo
-                if repo not in self._repo_cache:
-                    self._repo_cache[repo] = {}
+                self._repo_cache.setdefault(repo, {})
                 self._repo_cache[repo]["additions"] = repo_additions
                 self._repo_cache[repo]["deletions"] = repo_deletions
                 self._repo_timestamps[repo] = pushed_at
@@ -625,9 +624,10 @@ Languages:
             pushed_at = repo_metadata.get("pushedAt", "")
             
             # Check if we have cached data for this repo
-            # Note: Views data is time-sensitive (last 14 days) and becomes stale over time.
-            # The cache only invalidates when pushedAt changes, which may not happen for weeks,
-            # so cached views may not reflect recent activity on inactive repositories.
+            # WARNING: Views data represents the last 14 days and changes daily.
+            # This cache only invalidates when pushedAt changes. For inactive repos,
+            # views data may be stale by weeks/months. This is an intentional tradeoff
+            # to prevent timeout on large accounts - stale data is better than no data.
             if self._is_repo_cached(repo, pushed_at):
                 cached_views = self._repo_cache[repo].get("views", 0)
                 total += cached_views
@@ -643,8 +643,7 @@ Languages:
                 total += repo_views
                 
                 # Cache the result for this repo
-                if repo not in self._repo_cache:
-                    self._repo_cache[repo] = {}
+                self._repo_cache.setdefault(repo, {})
                 self._repo_cache[repo]["views"] = repo_views
                 self._repo_timestamps[repo] = pushed_at
                 
