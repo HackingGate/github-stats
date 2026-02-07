@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -36,6 +37,16 @@ def _sanitize_repo_name(repo: str) -> str:
     if len(parts) == 2:
         return f"{parts[0]}/repo"
     return "owner/repo"
+
+
+def _hash_repo_name(repo: str) -> str:
+    """
+    Generate a one-way hash for repository name to use in cache storage.
+    This prevents private repository names from being stored in plain text.
+    :param repo: Full repository name (e.g., "owner/private-repo")
+    :return: SHA-256 hash of the repository name
+    """
+    return hashlib.sha256(repo.encode()).hexdigest()
 
 
 ###############################################################################
@@ -372,10 +383,11 @@ class Stats(object):
         :param pushed_at: ISO 8601 timestamp of last push to the repository
         :return: True if cached data exists and is up-to-date
         """
+        hashed_name = _hash_repo_name(repo_name)
         return (
-            repo_name in self._repo_cache
-            and repo_name in self._repo_timestamps
-            and self._repo_timestamps[repo_name] == pushed_at
+            hashed_name in self._repo_cache
+            and hashed_name in self._repo_timestamps
+            and self._repo_timestamps[hashed_name] == pushed_at
         )
 
     async def to_str(self) -> str:
@@ -605,7 +617,8 @@ Languages:
 
             # Check if we have cached data for this repo
             if self._is_repo_cached(repo, pushed_at):
-                cached_data = self._repo_cache[repo]
+                hashed_name = _hash_repo_name(repo)
+                cached_data = self._repo_cache[hashed_name]
                 additions += cached_data.get("additions", 0)
                 deletions += cached_data.get("deletions", 0)
                 print(
@@ -640,10 +653,11 @@ Languages:
                 deletions += repo_deletions
 
                 # Cache the result for this repo
-                self._repo_cache.setdefault(repo, {})
-                self._repo_cache[repo]["additions"] = repo_additions
-                self._repo_cache[repo]["deletions"] = repo_deletions
-                self._repo_timestamps[repo] = pushed_at
+                hashed_name = _hash_repo_name(repo)
+                self._repo_cache.setdefault(hashed_name, {})
+                self._repo_cache[hashed_name]["additions"] = repo_additions
+                self._repo_cache[hashed_name]["deletions"] = repo_deletions
+                self._repo_timestamps[hashed_name] = pushed_at
 
                 # Save cache incrementally after processing each repo
                 self._save_cache()
@@ -676,7 +690,8 @@ Languages:
             # views data may be stale by weeks/months. This is an intentional tradeoff
             # to prevent timeout on large accounts - stale data is better than no data.
             if self._is_repo_cached(repo, pushed_at):
-                cached_views = self._repo_cache[repo].get("views", 0)
+                hashed_name = _hash_repo_name(repo)
+                cached_views = self._repo_cache[hashed_name].get("views", 0)
                 total += cached_views
                 print(
                     f"Using cached views for {_sanitize_repo_name(repo)} "
@@ -696,9 +711,10 @@ Languages:
                 total += repo_views
 
                 # Cache the result for this repo
-                self._repo_cache.setdefault(repo, {})
-                self._repo_cache[repo]["views"] = repo_views
-                self._repo_timestamps[repo] = pushed_at
+                hashed_name = _hash_repo_name(repo)
+                self._repo_cache.setdefault(hashed_name, {})
+                self._repo_cache[hashed_name]["views"] = repo_views
+                self._repo_timestamps[hashed_name] = pushed_at
 
                 # Save cache incrementally after processing each repo
                 self._save_cache()
