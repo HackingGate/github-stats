@@ -36,7 +36,7 @@ jobs:
 
     # Restore cache from previous run
     - name: Restore cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: generated/repo_stats_cache.json
         key: repo-stats-cache-${{ github.run_number }}
@@ -57,7 +57,7 @@ jobs:
 
     # Save cache for next run
     - name: Save cache
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       if: always()
       with:
         path: generated/repo_stats_cache.json
