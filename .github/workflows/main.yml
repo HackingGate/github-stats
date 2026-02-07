@@ -37,6 +37,7 @@ jobs:
     # Download cache artifact from previous run to preserve progress
     - name: Download cache artifact
       uses: actions/download-artifact@v7
+      continue-on-error: true
       with:
         name: repo-stats-cache
         path: generated
