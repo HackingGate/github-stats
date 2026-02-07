@@ -3,10 +3,39 @@
 import asyncio
 import json
 import os
+import re
 from typing import Any, cast
 
 import aiohttp
 import requests
+
+###############################################################################
+# Helper Functions
+###############################################################################
+
+
+def _sanitize_error_message(message: str | None) -> str:
+    """
+    Remove potentially sensitive repository names from error messages to prevent
+    leaking private repository information in GitHub Actions logs.
+    :param message: Error message to sanitize
+    :return: Sanitized error message
+    """
+    if message is None:
+        return ""
+    return re.sub(r"/repos/[^/]+/[^/]+", "/repos/owner/repo", message)
+
+
+def _sanitize_repo_name(repo: str) -> str:
+    """
+    Sanitize repository name for logging to prevent leaking private repo names.
+    :param repo: Full repository name (e.g., "owner/private-repo")
+    :return: Sanitized repository name (e.g., "owner/repo")
+    """
+    parts = repo.split("/")
+    if len(parts) == 2:
+        return f"{parts[0]}/repo"
+    return "owner/repo"
 
 
 ###############################################################################
@@ -52,18 +81,23 @@ class Queries(object):
             result = await r_async.json()
             if result is not None:
                 return result
-        except:
-            print("aiohttp failed for GraphQL query")
+        except (aiohttp.ClientError, json.JSONDecodeError) as e:
+            print(
+                f"aiohttp failed for GraphQL query: {_sanitize_error_message(str(e))}"
+            )
             # Fall back on non-async requests
-            async with self.semaphore:
-                r_requests = requests.post(
-                    "https://api.github.com/graphql",
-                    headers=headers,
-                    json={"query": generated_query},
-                )
-                result = r_requests.json()
-                if result is not None:
-                    return result
+            try:
+                async with self.semaphore:
+                    r_requests = requests.post(
+                        "https://api.github.com/graphql",
+                        headers=headers,
+                        json={"query": generated_query},
+                    )
+                    result = r_requests.json()
+                    if result is not None:
+                        return result
+            except (requests.RequestException, json.JSONDecodeError):
+                pass
         return dict()
 
     async def query_rest(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -90,29 +124,33 @@ class Queries(object):
                         params=tuple(params.items()),
                     )
                 if r_async.status == 202:
-                    # print(f"{path} returned 202. Retrying...")
-                    print(f"A path returned 202. Retrying...")
+                    print("A path returned 202. Retrying...")
                     await asyncio.sleep(2)
                     continue
 
                 result = await r_async.json()
                 if result is not None:
                     return result
-            except:
-                print("aiohttp failed for rest query")
+            except (aiohttp.ClientError, json.JSONDecodeError) as e:
+                print(
+                    f"aiohttp failed for rest query: {_sanitize_error_message(str(e))}"
+                )
                 # Fall back on non-async requests
-                async with self.semaphore:
-                    r_requests = requests.get(
-                        f"https://api.github.com/{path}",
-                        headers=headers,
-                        params=tuple(params.items()),
-                    )
+                try:
+                    async with self.semaphore:
+                        r_requests = requests.get(
+                            f"https://api.github.com/{path}",
+                            headers=headers,
+                            params=tuple(params.items()),
+                        )
                     if r_requests.status_code == 202:
-                        print(f"A path returned 202. Retrying...")
+                        print("A path returned 202. Retrying...")
                         await asyncio.sleep(2)
                         continue
                     elif r_requests.status_code == 200:
                         return r_requests.json()
+                except (requests.RequestException, json.JSONDecodeError):
+                    pass
         # print(f"There were too many 202s. Data for {path} will be incomplete.")
         print("There were too many 202s. Data for this repository will be incomplete.")
         return dict()
@@ -135,7 +173,7 @@ class Queries(object):
             direction: DESC
         }},
         isFork: false,
-        after: {"null" if owned_cursor is None else '"'+ owned_cursor +'"'}
+        after: {"null" if owned_cursor is None else '"' + owned_cursor + '"'}
     ) {{
       pageInfo {{
         hasNextPage
@@ -172,7 +210,7 @@ class Queries(object):
             REPOSITORY,
             PULL_REQUEST_REVIEW
         ]
-        after: {"null" if contrib_cursor is None else '"'+ contrib_cursor +'"'}
+        after: {"null" if contrib_cursor is None else '"' + contrib_cursor + '"'}
     ) {{
       pageInfo {{
         hasNextPage
@@ -251,14 +289,16 @@ query {{
 class Stats(object):
     """
     Retrieve and store statistics about GitHub usage.
-    
+
     This class includes caching functionality to improve performance:
     - Repository statistics are cached based on the repository's last push timestamp
     - Cached data is stored in generated/repo_stats_cache.json
     - Cache is saved incrementally after each repository is processed
     - Cache persists between GitHub Actions workflow runs using actions/cache
-    - If a repository hasn't been updated (same pushedAt timestamp), cached data is reused
-    - This significantly reduces execution time and API calls for unchanged repositories
+    - If a repository hasn't been updated (same pushedAt timestamp),
+      cached data is reused
+    - This significantly reduces execution time and API calls for unchanged
+      repositories
     """
 
     def __init__(
@@ -284,7 +324,7 @@ class Stats(object):
         self._repos: set[str] | None = None
         self._lines_changed: tuple[int, int] | None = None
         self._views: int | None = None
-        
+
         # Cache-related attributes
         self._cache_file = "generated/repo_stats_cache.json"
         self._repo_cache: dict[str, dict[str, Any]] = {}
@@ -314,7 +354,7 @@ class Stats(object):
         """
         # Ensure the generated directory exists
         os.makedirs(os.path.dirname(self._cache_file), exist_ok=True)
-        
+
         try:
             cache_data = {
                 "repo_cache": self._repo_cache,
@@ -408,13 +448,13 @@ Languages:
                 if name in self._repos or name in self._exclude_repos:
                     continue
                 self._repos.add(name)
-                
+
                 # Track repository metadata including pushedAt timestamp
                 pushed_at = repo.get("pushedAt", "")
                 self._repo_metadata[name] = {
                     "pushedAt": pushed_at,
                 }
-                
+
                 self._stargazers += repo.get("stargazers").get("totalCount", 0)
                 self._forks += repo.get("forkCount", 0)
 
@@ -448,7 +488,7 @@ Languages:
         # TODO: Improve languages to scale by number of contributions to
         #       specific filetypes
         langs_total = sum([v.get("size", 0) for v in self._languages.values()])
-        for k, v in self._languages.items():
+        for v in self._languages.values():
             v["prop"] = 100 * (v.get("size", 0) / langs_total)
 
     @property
@@ -557,25 +597,31 @@ Languages:
         repos_list = await self.repos
         total_repos = len(repos_list)
         processed_count = 0
-        
+
         for repo in repos_list:
             processed_count += 1
             repo_metadata = self._repo_metadata.get(repo, {})
             pushed_at = repo_metadata.get("pushedAt", "")
-            
+
             # Check if we have cached data for this repo
             if self._is_repo_cached(repo, pushed_at):
                 cached_data = self._repo_cache[repo]
                 additions += cached_data.get("additions", 0)
                 deletions += cached_data.get("deletions", 0)
-                print(f"Using cached data for {repo} ({processed_count}/{total_repos})")
+                print(
+                    f"Using cached data for {_sanitize_repo_name(repo)} "
+                    f"({processed_count}/{total_repos})"
+                )
             else:
                 # Fetch fresh data from API
-                print(f"Fetching fresh data for {repo} ({processed_count}/{total_repos})")
+                print(
+                    f"Fetching fresh data for {_sanitize_repo_name(repo)} "
+                    f"({processed_count}/{total_repos})"
+                )
                 r = await self.queries.query_rest(f"/repos/{repo}/stats/contributors")
                 repo_additions = 0
                 repo_deletions = 0
-                
+
                 for author_obj in r:
                     # Handle malformed response from the API by skipping this repo
                     if not isinstance(author_obj, dict) or not isinstance(
@@ -589,16 +635,16 @@ Languages:
                     for week in author_obj.get("weeks", []):
                         repo_additions += week.get("a", 0)
                         repo_deletions += week.get("d", 0)
-                
+
                 additions += repo_additions
                 deletions += repo_deletions
-                
+
                 # Cache the result for this repo
                 self._repo_cache.setdefault(repo, {})
                 self._repo_cache[repo]["additions"] = repo_additions
                 self._repo_cache[repo]["deletions"] = repo_deletions
                 self._repo_timestamps[repo] = pushed_at
-                
+
                 # Save cache incrementally after processing each repo
                 self._save_cache()
 
@@ -618,12 +664,12 @@ Languages:
         repos_list = await self.repos
         total_repos = len(repos_list)
         processed_count = 0
-        
+
         for repo in repos_list:
             processed_count += 1
             repo_metadata = self._repo_metadata.get(repo, {})
             pushed_at = repo_metadata.get("pushedAt", "")
-            
+
             # Check if we have cached data for this repo
             # WARNING: Views data represents the last 14 days and changes daily.
             # This cache only invalidates when pushedAt changes. For inactive repos,
@@ -632,22 +678,28 @@ Languages:
             if self._is_repo_cached(repo, pushed_at):
                 cached_views = self._repo_cache[repo].get("views", 0)
                 total += cached_views
-                print(f"Using cached views for {repo} ({processed_count}/{total_repos})")
+                print(
+                    f"Using cached views for {_sanitize_repo_name(repo)} "
+                    f"({processed_count}/{total_repos})"
+                )
             else:
                 # Fetch fresh data from API
-                print(f"Fetching fresh views for {repo} ({processed_count}/{total_repos})")
+                print(
+                    f"Fetching fresh views for {_sanitize_repo_name(repo)} "
+                    f"({processed_count}/{total_repos})"
+                )
                 r = await self.queries.query_rest(f"/repos/{repo}/traffic/views")
                 repo_views = 0
                 for view in r.get("views", []):
                     repo_views += view.get("count", 0)
-                
+
                 total += repo_views
-                
+
                 # Cache the result for this repo
                 self._repo_cache.setdefault(repo, {})
                 self._repo_cache[repo]["views"] = repo_views
                 self._repo_timestamps[repo] = pushed_at
-                
+
                 # Save cache incrementally after processing each repo
                 self._save_cache()
 

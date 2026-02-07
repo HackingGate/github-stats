@@ -8,7 +8,6 @@ import aiohttp
 
 from github_stats import Stats
 
-
 ################################################################################
 # Helper Functions
 ################################################################################
@@ -60,9 +59,11 @@ async def generate_languages(s: Stats) -> None:
     progress = ""
     lang_list = ""
     sorted_languages = sorted(
-        (await s.languages).items(), reverse=True, key=lambda t: t[1].get("size")
+        (await s.languages).items(),
+        reverse=True,
+        key=lambda t: t[1].get("size", 0),
     )
-    for i, (lang, data) in enumerate(sorted_languages):
+    for lang, data in sorted_languages:
         color = data.get("color")
         color = color if color is not None else "#000000"
         progress += (
