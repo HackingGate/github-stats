@@ -593,10 +593,10 @@ Languages:
                 deletions += repo_deletions
                 
                 # Cache the result for this repo
-                self._repo_cache[repo] = {
-                    "additions": repo_additions,
-                    "deletions": repo_deletions,
-                }
+                if repo not in self._repo_cache:
+                    self._repo_cache[repo] = {}
+                self._repo_cache[repo]["additions"] = repo_additions
+                self._repo_cache[repo]["deletions"] = repo_deletions
                 self._repo_timestamps[repo] = pushed_at
                 
                 # Save cache incrementally after processing each repo
@@ -625,9 +625,10 @@ Languages:
             pushed_at = repo_metadata.get("pushedAt", "")
             
             # Check if we have cached data for this repo
-            # Note: Views are time-sensitive (last 14 days), so we still cache them
-            # but they might be less accurate if the repo hasn't been pushed to recently
-            if self._is_repo_cached(repo, pushed_at) and "views" in self._repo_cache[repo]:
+            # Note: Views data is time-sensitive (last 14 days) and becomes stale over time.
+            # The cache only invalidates when pushedAt changes, which may not happen for weeks,
+            # so cached views may not reflect recent activity on inactive repositories.
+            if self._is_repo_cached(repo, pushed_at):
                 cached_views = self._repo_cache[repo].get("views", 0)
                 total += cached_views
                 print(f"Using cached views for {repo} ({processed_count}/{total_repos})")
@@ -641,7 +642,7 @@ Languages:
                 
                 total += repo_views
                 
-                # Update cache for this repo (merge with existing cache data)
+                # Cache the result for this repo
                 if repo not in self._repo_cache:
                     self._repo_cache[repo] = {}
                 self._repo_cache[repo]["views"] = repo_views
