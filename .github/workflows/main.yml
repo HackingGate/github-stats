@@ -34,12 +34,14 @@ jobs:
         python3 -m pip install --upgrade pip setuptools wheel
         python3 -m pip install -r requirements.txt
 
-    # Restore cache from previous run to preserve progress
-    - name: Restore cache
-      uses: actions/cache/restore@v5
+    # Cache to preserve progress across runs
+    - name: Cache repository stats
+      uses: actions/cache@v5
       with:
         path: generated/repo_stats_cache.json
         key: repo-stats-cache-${{ hashFiles('github_stats.py', 'generate_images.py', 'requirements.txt') }}
+        restore-keys: |
+          repo-stats-cache-
 
     # Generate all statistics images
     - name: Generate images
@@ -52,14 +54,6 @@ jobs:
         EXCLUDED: ${{ secrets.EXCLUDED }}
         EXCLUDED_LANGS: ${{ secrets.EXCLUDED_LANGS }}
         EXCLUDE_FORKED_REPOS: true
-
-    # Save cache (runs even on timeout to preserve progress)
-    - name: Save cache
-      uses: actions/cache/save@v5
-      if: always()
-      with:
-        path: generated/repo_stats_cache.json
-        key: repo-stats-cache-${{ hashFiles('github_stats.py', 'generate_images.py', 'requirements.txt') }}
 
     # Commit all changed files to the repository
     - name: Commit to the repo
