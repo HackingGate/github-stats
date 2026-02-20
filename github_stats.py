@@ -604,8 +604,8 @@ Languages:
             pushed_at = repo_metadata.get("pushedAt", "")
 
             # Check if we have cached data for this repo
-            if self._is_repo_cached(repo, pushed_at):
-                repo_hash = _hash_name(repo)
+            repo_hash = _hash_name(repo)
+            if self._is_repo_cached(repo, pushed_at) and "additions" in self._repo_cache.get(repo_hash, {}):
                 cached_data = self._repo_cache[repo_hash]
                 additions += cached_data.get("additions", 0)
                 deletions += cached_data.get("deletions", 0)
@@ -615,7 +615,6 @@ Languages:
                 )
             else:
                 # Fetch fresh data from API
-                repo_hash = _hash_name(repo)
                 print(
                     f"Fetching fresh data for {repo_hash[:8]} "
                     f"({processed_count}/{total_repos})"
@@ -677,8 +676,8 @@ Languages:
             # This cache only invalidates when pushedAt changes. For inactive repos,
             # views data may be stale by weeks/months. This is an intentional tradeoff
             # to prevent timeout on large accounts - stale data is better than no data.
-            if self._is_repo_cached(repo, pushed_at):
-                repo_hash = _hash_name(repo)
+            repo_hash = _hash_name(repo)
+            if self._is_repo_cached(repo, pushed_at) and "views" in self._repo_cache.get(repo_hash, {}):
                 cached_views = self._repo_cache[repo_hash].get("views", 0)
                 total += cached_views
                 print(
@@ -687,7 +686,6 @@ Languages:
                 )
             else:
                 # Fetch fresh data from API
-                repo_hash = _hash_name(repo)
                 print(
                     f"Fetching fresh views for {repo_hash[:8]} "
                     f"({processed_count}/{total_repos})"
