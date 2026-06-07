@@ -138,3 +138,6 @@ dmypy.json
 # Zig files
 .zig-cache
 zig-out
+
+# Runtime stats cache
+generated/repo_stats_cache.json

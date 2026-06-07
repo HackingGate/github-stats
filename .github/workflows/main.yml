@@ -37,22 +37,36 @@ jobs:
         git pull
         git checkout generated || git checkout -b generated
 
+    # Cache to preserve progress across runs
+    - name: Cache repository stats
+      uses: actions/cache@v5
+      with:
+        path: generated/repo_stats_cache.json
+        key: repo-stats-cache-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          repo-stats-cache-${{ github.sha }}-
+          repo-stats-cache-
+
     - name: Generate images
       run: |
         ./zig-out/bin/github-stats
       env:
         ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
-        EXCLUDE_REPOS: ${{ secrets.EXCLUDE_REPOS }}
-        EXCLUDE_LANGS: ${{ secrets.EXCLUDE_LANGS }}
+        EXCLUDE_REPOS: ${{ secrets.EXCLUDE_REPOS || vars.EXCLUDE_REPOS || vars.EXCLUDED }}
+        EXCLUDE_LANGS: ${{ secrets.EXCLUDE_LANGS || vars.EXCLUDE_LANGS || vars.EXCLUDED_LANGS }}
+        EXCLUDE_FORKED_REPOS: ${{ vars.EXCLUDE_FORKED_REPOS || 'false' }}
+        OWNED_ONLY_STARS_FORKS: ${{ vars.OWNED_ONLY_STARS_FORKS || 'false' }}
         EXCLUDE_PRIVATE: "false"
         SILENT: "true"
+        MAX_RUNTIME_SECONDS: ${{ vars.GITHUB_STATS_MAX_RUNTIME_SECONDS || '720' }}
+        REPO_STATS_CACHE_FILE: generated/repo_stats_cache.json
         # TODO: Remove this when they get their API working again
         # https://github.com/orgs/community/discussions/192970
         MAX_RETRIES: 5
 
     - name: Commit to the repo
       run: |
-        git add .
+        git add overview.svg languages.svg
         # Force the build to succeed, even if no files were changed
         git commit -m 'Update generated files' || true
         git push --set-upstream origin generated

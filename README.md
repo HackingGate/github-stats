@@ -67,10 +67,13 @@ The GitHub statistics API returns inaccurate results in some situations:
   - If you lack permissions to access the view count for a repository, it will
     be tallied as zero views – this is common for external repositories where
     your only contribution is making a pull request
-- Only repositories with commit contributions are counted, so if you only open
-  an issue on a repo, it will not show up in the statistics
-  - Repos you created and own may not be counted if you never commit to them, or
-    if the committer email is not connected to your GitHub account
+- Repository metadata is collected from all repositories visible to the token
+  through owner, collaborator, and organization-member access. External
+  contribution repositories are also discovered from commit contribution
+  history. The language card is based on your changed lines in detectable
+  programming-language files, not the total byte size of each repository.
+  - If you only open an issue on an external repository where you are not a
+    collaborator or organization member, it will not show up in the statistics.
 
 If the calculated numbers seem strange, run the CLI locally and dump JSON output
 to determine which repositories are skewing the statistics in unexpected ways.
@@ -83,8 +86,7 @@ To make your own statistics images: make a copy of this repository, make a
 GitHub API token, add the token to the repository, run the Actions workflow,
 and retrieve the images.
 
-1. [Make a "**classic**" personal access token with `read:user`, `user:email`,
-   and `repo`
+1. [Make a "**classic**" personal access token with `read:user` and `repo`
    permissions.](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
    1. [Navigate to the personal access tokens (classic)
       page.](https://github.com/settings/tokens) Open that link in a new tab, or
@@ -98,12 +100,12 @@ and retrieve the images.
       (classic)" in the menu that drops down.
    1. Set the expiration date to "none" (unless you want to periodically
       regenerate this token).
-   1. Check `read:user`, `user:email`, and `repo` permissions.
+   1. Check `read:user` and `repo` permissions.
       - `read:user` and `repo` permissions are necessary for reading user and
         repository metadata to calculate statistics.
-      - `user:email` permission is necessary for correctly attributing commits
-        to the user when cloning repositories locally to compute lines of code
-        changed.
+      - `user:email` is optional but recommended. Without it, local git
+        attribution uses the public profile email and GitHub noreply addresses
+        available from the account metadata.
    1. Click the green "Generate token" button at the bottom.
    1. **Copy the token and save it somewhere.** If you lose it, you will not be
       able to access it again, and will have to regenerate a new one. I keep
@@ -147,6 +149,17 @@ and retrieve the images.
    - Lists for `EXCLUDE_REPOS` and `EXCLUDE_LANGS` can use globbing patterns.
      For example, to exclude all repos by user "jstrieb", add `jstrieb/*` to
      `EXCLUDE_REPOS`.
+   - Existing repository variables named `EXCLUDED` and `EXCLUDED_LANGS` are
+     also supported by the bundled workflow for compatibility with older
+     versions.
+   - To omit fork repositories from the statistics, set the repository variable
+     `EXCLUDE_FORKED_REPOS` to `true`.
+   - To count stars and forks only for repositories you own, set the repository
+     variable `OWNED_ONLY_STARS_FORKS` to `true`.
+   - The workflow preserves a hashed repository statistics cache across runs at
+     `generated/repo_stats_cache.json`. To change the soft runtime budget used
+     before saving partial progress, set `GITHUB_STATS_MAX_RUNTIME_SECONDS` to a
+     number of seconds. The bundled workflow defaults to `720`.
    - These can also be set directly in [the Actions
      workflow](.github/workflows/main.yml), but you should set them as secrets
      if you want to keep the repository names or languages private.
@@ -218,15 +231,15 @@ making it hard to read.
 
 ### List Languages
 
-List all languages, sorted with most-used at the bottom.
+List all contributed languages, sorted with most-used at the bottom.
 
 ``` bash
 jq --raw-output '
-  [.repositories[].languages[]] 
-    | group_by(.name) 
-    | sort_by([.[].size] | add) 
-    | .[] 
-    | "\(.[0].name): \([.[].size] | add)"
+  [.repositories[].contribution_languages[]?]
+    | group_by(.name)
+    | sort_by([.[].lines_changed] | add)
+    | .[]
+    | "\(.[0].name): \([.[].lines_changed] | add)"
 ' stats.json
 ```
 

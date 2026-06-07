@@ -43,13 +43,20 @@ const Args = struct {
     debug: bool = false,
     verbose: bool = false,
     exclude_repos: ?[]const u8 = null,
+    excluded: ?[]const u8 = null,
     exclude_langs: ?[]const u8 = null,
+    excluded_langs: ?[]const u8 = null,
     exclude_private: bool = false,
+    exclude_forked_repos: bool = false,
+    owned_only_stars_forks: bool = false,
     overview_output_file: ?[]const u8 = null,
     languages_output_file: ?[]const u8 = null,
     overview_template: ?[]const u8 = null,
     languages_template: ?[]const u8 = null,
     max_retries: ?usize = 25,
+    max_runtime_seconds: ?u64 = null,
+    github_stats_max_runtime_seconds: ?u64 = null,
+    repo_stats_cache_file: ?[]const u8 = null,
     version: bool = false,
     dump_overview_template: ?[]const u8 = null,
     dump_languages_template: ?[]const u8 = null,
@@ -120,8 +127,7 @@ fn languages(
         stats.languages.values(),
         progress,
         lang_list,
-        0..,
-    ) |language, count, *progress_s, *lang_s, i| {
+    ) |language, count, *progress_s, *lang_s| {
         const color = stats.language_colors.get(language);
         const percent =
             100 * if (stats.languages_total == 0)
@@ -136,7 +142,7 @@ fn languages(
             \\" class="progress-item"></span>
         , .{ color orelse "#000", percent });
         lang_s.* = try std.fmt.allocPrint(a,
-            \\<li style="animation-delay: {d}ms;">
+            \\<li>
             \\  <svg 
             \\      xmlns="http://www.w3.org/2000/svg" 
             \\      class="octicon"
@@ -153,7 +159,7 @@ fn languages(
             \\  <span class="percent">{d:.2}%</span>
             \\</li>
             \\
-        , .{ (i + 1) * 150, color orelse "#000", language, percent });
+        , .{ color orelse "#000", language, percent });
     }
     return templateFill(
         a,
@@ -163,6 +169,100 @@ fn languages(
             .progress = try std.mem.concat(a, u8, progress),
         },
     );
+}
+
+const AggregateStats = struct {
+    languages: std.array_hash_map.String(u64),
+    language_colors: std.array_hash_map.String([]const u8),
+    contributions: usize,
+    name: []const u8,
+    languages_total: u64 = 0,
+    stars: usize = 0,
+    forks: usize = 0,
+    lines_changed: usize = 0,
+    views: usize = 0,
+    repos: usize = 0,
+
+    fn deinit(self: *AggregateStats, allocator: std.mem.Allocator) void {
+        self.languages.deinit(allocator);
+        self.language_colors.deinit(allocator);
+    }
+};
+
+fn aggregateStats(
+    allocator: std.mem.Allocator,
+    stats: anytype,
+    exclude_repos: []const []const u8,
+    exclude_langs: []const []const u8,
+    exclude_private: bool,
+    owned_only_stars_forks: bool,
+) !AggregateStats {
+    var aggregate_stats: AggregateStats = .{
+        .contributions = stats.repo_contributions +
+            stats.issue_contributions +
+            stats.commit_contributions +
+            stats.pr_contributions +
+            stats.review_contributions,
+        .languages = try .init(allocator, &.{}, &.{}),
+        .language_colors = try .init(allocator, &.{}, &.{}),
+        .name = stats.name,
+    };
+    errdefer aggregate_stats.deinit(allocator);
+
+    for (stats.repositories) |repository| {
+        if (glob.matchAny(exclude_repos, repository.name) or
+            (exclude_private and repository.private))
+        {
+            continue;
+        }
+        if (!owned_only_stars_forks or repository.owned) {
+            aggregate_stats.stars += repository.stars;
+            aggregate_stats.forks += repository.forks;
+        }
+        aggregate_stats.lines_changed += repository.lines_changed;
+        aggregate_stats.views += repository.views;
+        aggregate_stats.repos += 1;
+
+        if (repository.contribution_languages) |langs| for (langs) |language| {
+            try addAggregateLanguage(
+                allocator,
+                &aggregate_stats,
+                exclude_langs,
+                language.name,
+                language.color,
+                language.lines_changed,
+            );
+        };
+    }
+
+    aggregate_stats.languages.sort(struct {
+        values: @TypeOf(aggregate_stats.languages.values()),
+        pub fn lessThan(self: @This(), a: usize, b: usize) bool {
+            // Sort in reverse order
+            return self.values[a] > self.values[b];
+        }
+    }{ .values = aggregate_stats.languages.values() });
+    return aggregate_stats;
+}
+
+fn addAggregateLanguage(
+    allocator: std.mem.Allocator,
+    aggregate_stats: *AggregateStats,
+    exclude_langs: []const []const u8,
+    name: []const u8,
+    color: ?[]const u8,
+    value: u64,
+) !void {
+    if (value == 0 or glob.matchAny(exclude_langs, name)) {
+        return;
+    }
+    if (color) |c| {
+        try aggregate_stats.language_colors.put(allocator, name, c);
+    }
+    var total = aggregate_stats.languages.get(name) orelse 0;
+    total += value;
+    try aggregate_stats.languages.put(allocator, name, total);
+    aggregate_stats.languages_total += value;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -202,13 +302,13 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const exclude_repos =
-        if (args.exclude_repos) |exclude|
+        if (args.exclude_repos orelse args.excluded) |exclude|
             try splitList(allocator, exclude, " ,\t\r\n|\"'\x00")
         else
             null;
     defer if (exclude_repos) |exclude| allocator.free(exclude);
     const exclude_langs =
-        if (args.exclude_langs) |exclude|
+        if (args.exclude_langs orelse args.excluded_langs) |exclude|
             try splitList(allocator, exclude, ",\t\r\n|\"'\x00")
         else
             null;
@@ -222,12 +322,29 @@ pub fn main(init: std.process.Init) !void {
         std.log.info("Collecting statistics from GitHub API", .{});
         var client: HttpClient = try .init(allocator, io, access_token);
         defer client.deinit();
-        break :stats try Statistics.init(
+        break :stats Statistics.init(
             &client,
             allocator,
             io,
-            args.max_retries,
-        );
+            .{
+                .max_retries = args.max_retries,
+                .cache_file = args.repo_stats_cache_file orelse
+                    "generated/repo_stats_cache.json",
+                .max_runtime_seconds = args.max_runtime_seconds orelse
+                    args.github_stats_max_runtime_seconds,
+                .exclude_repos = exclude_repos orelse &.{},
+                .exclude_forked_repos = args.exclude_forked_repos,
+            },
+        ) catch |err| switch (err) {
+            error.TimeBudgetExceeded => {
+                std.log.info(
+                    "Stats generation time budget reached. Saved partial cache; exiting successfully.",
+                    .{},
+                );
+                return;
+            },
+            else => return err,
+        };
     } else unreachable;
     defer stats.deinit(allocator);
 
@@ -245,64 +362,15 @@ pub fn main(init: std.process.Init) !void {
         );
     }
 
-    var aggregate_stats: struct {
-        languages: std.array_hash_map.String(u64),
-        language_colors: std.array_hash_map.String([]const u8),
-        contributions: usize,
-        name: []const u8,
-        languages_total: usize = 0,
-        stars: usize = 0,
-        forks: usize = 0,
-        lines_changed: usize = 0,
-        views: usize = 0,
-        repos: usize = 0,
-    } = .{
-        .contributions = stats.repo_contributions +
-            stats.issue_contributions +
-            stats.commit_contributions +
-            stats.pr_contributions +
-            stats.review_contributions,
-        .languages = try .init(allocator, &.{}, &.{}),
-        .language_colors = try .init(allocator, &.{}, &.{}),
-        .name = stats.name,
-    };
-    defer aggregate_stats.languages.deinit(allocator);
-    defer aggregate_stats.language_colors.deinit(allocator);
-    for (stats.repositories) |repository| {
-        if (glob.matchAny(exclude_repos orelse &.{}, repository.name) or
-            (args.exclude_private and repository.private))
-        {
-            continue;
-        }
-        aggregate_stats.stars += repository.stars;
-        aggregate_stats.forks += repository.forks;
-        aggregate_stats.lines_changed += repository.lines_changed;
-        aggregate_stats.views += repository.views;
-        aggregate_stats.repos += 1;
-        if (repository.languages) |langs| for (langs) |language| {
-            if (glob.matchAny(exclude_langs orelse &.{}, language.name)) {
-                continue;
-            }
-            if (language.color) |color| {
-                try aggregate_stats.language_colors.put(
-                    allocator,
-                    language.name,
-                    color,
-                );
-            }
-            var total = aggregate_stats.languages.get(language.name) orelse 0;
-            total += language.size;
-            try aggregate_stats.languages.put(allocator, language.name, total);
-            aggregate_stats.languages_total += language.size;
-        };
-    }
-    aggregate_stats.languages.sort(struct {
-        values: @TypeOf(aggregate_stats.languages.values()),
-        pub fn lessThan(self: @This(), a: usize, b: usize) bool {
-            // Sort in reverse order
-            return self.values[a] > self.values[b];
-        }
-    }{ .values = aggregate_stats.languages.values() });
+    var aggregate_stats = try aggregateStats(
+        allocator,
+        stats,
+        exclude_repos orelse &.{},
+        exclude_langs orelse &.{},
+        args.exclude_private,
+        args.owned_only_stars_forks,
+    );
+    defer aggregate_stats.deinit(allocator);
 
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -338,6 +406,167 @@ pub fn main(init: std.process.Init) !void {
 
 test {
     std.testing.refAllDecls(@This());
+}
+
+test "language aggregation uses personal changed lines over repo byte totals" {
+    const json =
+        \\{
+        \\  "repositories": [
+        \\    {
+        \\      "name": "owner/huge-c",
+        \\      "stars": 0,
+        \\      "forks": 0,
+        \\      "languages": [
+        \\        { "name": "C", "size": 1000000000, "color": "#555555" }
+        \\      ],
+        \\      "contribution_languages": [],
+        \\      "lines_changed": 0,
+        \\      "lines_changed_complete": true,
+        \\      "views": 0,
+        \\      "private": false
+        \\    },
+        \\    {
+        \\      "name": "owner/small-zig",
+        \\      "stars": 0,
+        \\      "forks": 0,
+        \\      "languages": [
+        \\        { "name": "C", "size": 999999999, "color": "#555555" }
+        \\      ],
+        \\      "contribution_languages": [
+        \\        { "name": "Zig", "color": "#ec915c", "lines_changed": 5 }
+        \\      ],
+        \\      "lines_changed": 5,
+        \\      "lines_changed_complete": true,
+        \\      "views": 0,
+        \\      "private": false
+        \\    }
+        \\  ],
+        \\  "user": "octo",
+        \\  "name": "Octo",
+        \\  "emails": ["octo@example.com"],
+        \\  "repo_contributions": 0,
+        \\  "issue_contributions": 0,
+        \\  "commit_contributions": 0,
+        \\  "pr_contributions": 0,
+        \\  "review_contributions": 0
+        \\}
+    ;
+    var stats = try Statistics.initFromJson(std.testing.allocator, json);
+    defer stats.deinit(std.testing.allocator);
+
+    var aggregate_stats = try aggregateStats(
+        std.testing.allocator,
+        stats,
+        &.{},
+        &.{},
+        false,
+        false,
+    );
+    defer aggregate_stats.deinit(std.testing.allocator);
+
+    try std.testing.expect(aggregate_stats.languages.get("C") == null);
+    try std.testing.expectEqual(@as(?u64, 5), aggregate_stats.languages.get("Zig"));
+    try std.testing.expectEqual(@as(u64, 5), aggregate_stats.languages_total);
+}
+
+test "language aggregation leaves legacy JSON without personal language data empty" {
+    const json =
+        \\{
+        \\  "repositories": [
+        \\    {
+        \\      "name": "owner/legacy",
+        \\      "stars": 0,
+        \\      "forks": 0,
+        \\      "languages": [
+        \\        { "name": "C", "size": 12, "color": "#555555" }
+        \\      ],
+        \\      "lines_changed": 1,
+        \\      "lines_changed_complete": true,
+        \\      "views": 0,
+        \\      "private": false
+        \\    }
+        \\  ],
+        \\  "user": "octo",
+        \\  "name": "Octo",
+        \\  "emails": ["octo@example.com"],
+        \\  "repo_contributions": 0,
+        \\  "issue_contributions": 0,
+        \\  "commit_contributions": 0,
+        \\  "pr_contributions": 0,
+        \\  "review_contributions": 0
+        \\}
+    ;
+    var stats = try Statistics.initFromJson(std.testing.allocator, json);
+    defer stats.deinit(std.testing.allocator);
+
+    var aggregate_stats = try aggregateStats(
+        std.testing.allocator,
+        stats,
+        &.{},
+        &.{},
+        false,
+        false,
+    );
+    defer aggregate_stats.deinit(std.testing.allocator);
+
+    try std.testing.expect(aggregate_stats.languages.get("C") == null);
+    try std.testing.expectEqual(@as(u64, 0), aggregate_stats.languages_total);
+}
+
+test "owned-only stars and forks exclude external repositories" {
+    const json =
+        \\{
+        \\  "repositories": [
+        \\    {
+        \\      "name": "owner/primary",
+        \\      "stars": 10,
+        \\      "forks": 2,
+        \\      "languages": [],
+        \\      "contribution_languages": [],
+        \\      "lines_changed": 5,
+        \\      "lines_changed_complete": true,
+        \\      "views": 1,
+        \\      "private": false,
+        \\      "owned": true
+        \\    },
+        \\    {
+        \\      "name": "other/external",
+        \\      "stars": 50,
+        \\      "forks": 7,
+        \\      "languages": [],
+        \\      "contribution_languages": [],
+        \\      "lines_changed": 3,
+        \\      "lines_changed_complete": true,
+        \\      "views": 4,
+        \\      "private": false,
+        \\      "owned": false
+        \\    }
+        \\  ],
+        \\  "user": "octo",
+        \\  "name": "Octo",
+        \\  "emails": ["octo@example.com"],
+        \\  "repo_contributions": 0,
+        \\  "issue_contributions": 0,
+        \\  "commit_contributions": 0,
+        \\  "pr_contributions": 0,
+        \\  "review_contributions": 0
+        \\}
+    ;
+    var stats = try Statistics.initFromJson(std.testing.allocator, json);
+    defer stats.deinit(std.testing.allocator);
+
+    var aggregate_stats = try aggregateStats(
+        std.testing.allocator,
+        stats,
+        &.{},
+        &.{},
+        false,
+        true,
+    );
+    defer aggregate_stats.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 10), aggregate_stats.stars);
+    try std.testing.expectEqual(@as(usize, 2), aggregate_stats.forks);
 }
 
 fn readFile(
