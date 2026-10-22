@@ -48,17 +48,16 @@ tokens=()
 while read -r id login; do
   [[ -n "$id" ]] || continue
   if ! grep -qxF "${login,,}" <<<"$allowed"; then
-    echo "Skipping installation on $login (not in STATS_APP_ORGS)" >&2
+    echo "Skipping an installation not in STATS_APP_ORGS" >&2
     continue
   fi
   token="$(api -X POST \
     -d '{"permissions":{"contents":"read","metadata":"read","administration":"read"}}' \
     "https://api.github.com/app/installations/$id/access_tokens" \
     | jq -r .token)"
-  [[ "$token" == ghs_* ]] || { echo "No token for $login" >&2; exit 1; }
+  [[ "$token" == ghs_* ]] || { echo "Failed to mint an installation token" >&2; exit 1; }
   echo "::add-mask::$token"
   tokens+=("$token")
-  echo "Minted a token for $login" >&2
 done <<<"$installations"
 
 (IFS=,; printf '%s' "${tokens[*]}") >"$out"
