@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      with:
+        persist-credentials: false
 
     - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
       with:
@@ -80,9 +82,13 @@ jobs:
         # https://github.com/orgs/community/discussions/192970
         MAX_RETRIES: 5
 
+    # Checkout does not persist credentials, so authenticate only the push
     - name: Commit to the repo
       run: |
         git add overview.svg languages.svg
         # Force the build to succeed, even if no files were changed
         git commit -m 'Update generated files' || true
+        gh auth setup-git
         git push --set-upstream origin generated
+      env:
+        GH_TOKEN: ${{ github.token }}
