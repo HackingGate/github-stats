@@ -49,6 +49,7 @@ const Args = struct {
     excluded_langs: ?[]const u8 = null,
     exclude_private: bool = false,
     exclude_forked_repos: bool = false,
+    include_archived_repos: bool = false,
     owned_only_stars_forks: bool = false,
     overview_output_file: ?[]const u8 = null,
     languages_output_file: ?[]const u8 = null,
@@ -361,6 +362,7 @@ pub fn main(init: std.process.Init) !void {
                     args.github_stats_max_runtime_seconds,
                 .exclude_repos = exclude_repos orelse &.{},
                 .exclude_forked_repos = args.exclude_forked_repos,
+                .include_archived_repos = args.include_archived_repos,
                 .org_clients = org_client_pointers,
             },
         ) catch |err| switch (err) {
