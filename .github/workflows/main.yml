@@ -73,6 +73,7 @@ jobs:
         EXCLUDE_REPOS: ${{ secrets.EXCLUDE_REPOS || vars.EXCLUDE_REPOS || vars.EXCLUDED }}
         EXCLUDE_LANGS: ${{ secrets.EXCLUDE_LANGS || vars.EXCLUDE_LANGS || vars.EXCLUDED_LANGS }}
         EXCLUDE_FORKED_REPOS: ${{ vars.EXCLUDE_FORKED_REPOS || 'false' }}
+        INCLUDE_ARCHIVED_REPOS: ${{ vars.INCLUDE_ARCHIVED_REPOS || 'false' }}
         OWNED_ONLY_STARS_FORKS: ${{ vars.OWNED_ONLY_STARS_FORKS || 'false' }}
         EXCLUDE_PRIVATE: "false"
         SILENT: "true"

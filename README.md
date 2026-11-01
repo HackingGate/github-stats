@@ -154,6 +154,9 @@ and retrieve the images.
      versions.
    - To omit fork repositories from the statistics, set the repository variable
      `EXCLUDE_FORKED_REPOS` to `true`.
+   - Archived repositories are omitted from the statistics by default. To
+     include them, set the repository variable `INCLUDE_ARCHIVED_REPOS` to
+     `true`.
    - To count stars and forks only for repositories you own, set the repository
      variable `OWNED_ONLY_STARS_FORKS` to `true`.
    - The workflow preserves a hashed repository statistics cache across runs at

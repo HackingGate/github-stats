@@ -145,6 +145,7 @@ pub const InitOptions = struct {
     max_runtime_seconds: ?u64 = null,
     exclude_repos: []const []const u8 = &.{},
     exclude_forked_repos: bool = false,
+    include_archived_repos: bool = false,
     // Clients using GitHub App installation tokens for organizations the user
     // token cannot see
     org_clients: []const *HttpClient = &.{},
@@ -199,6 +200,7 @@ const RawRepository = struct {
     forkCount: u32,
     isPrivate: bool,
     isFork: bool,
+    isArchived: bool = false,
     languages: ?struct {
         edges: ?[]struct {
             size: u32,
@@ -230,6 +232,7 @@ const RepoContext = struct {
     user: []const u8,
     exclude_repos: []const []const u8,
     exclude_forked_repos: bool,
+    include_archived_repos: bool,
     result: *Statistics,
     seen: *std.StringHashMap(bool),
     repositories: *std.ArrayList(Repository),
@@ -541,6 +544,7 @@ fn getReposByYear(
         \\          forkCount
         \\          isPrivate
         \\          isFork
+        \\          isArchived
         \\          languages(
         \\              first: 100,
         \\              orderBy: { direction: DESC, field: SIZE }
@@ -656,6 +660,14 @@ fn appendRepository(context: RepoContext, raw_repo: RawRepository) !void {
     }
     if (glob.matchAny(context.exclude_repos, raw_repo.nameWithOwner)) {
         std.log.debug("Skipping {s} (excluded)", .{raw_repo.nameWithOwner});
+        try context.seen.put(raw_repo.nameWithOwner, true);
+        return;
+    }
+    if (!context.include_archived_repos and raw_repo.isArchived) {
+        std.log.debug(
+            "Skipping {s} (archived)",
+            .{raw_repo.nameWithOwner},
+        );
         try context.seen.put(raw_repo.nameWithOwner, true);
         return;
     }
@@ -828,6 +840,7 @@ fn getAllRepos(context: RepoContext) !void {
             \\        forkCount
             \\        isPrivate
             \\        isFork
+            \\        isArchived
             \\        languages(
             \\            first: 100,
             \\            orderBy: { direction: DESC, field: SIZE }
@@ -958,6 +971,7 @@ fn getReposByIds(context: RepoContext, ids: []const []const u8) !void {
         \\      forkCount
         \\      isPrivate
         \\      isFork
+        \\      isArchived
         \\      languages(
         \\          first: 100,
         \\          orderBy: { direction: DESC, field: SIZE }
@@ -1061,6 +1075,7 @@ fn getRepos(
         .user = info.user,
         .exclude_repos = options.exclude_repos,
         .exclude_forked_repos = options.exclude_forked_repos,
+        .include_archived_repos = options.include_archived_repos,
         .result = &result,
         .seen = &seen,
         .repositories = &repositories,
