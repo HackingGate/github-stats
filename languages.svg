@@ -126,28 +126,28 @@ div.ellipsis {
 <span class="progress">
 <span style="
   background-color: #3572a5; 
-  width: 30.549%;
+  width: 30.499%;
 " class="progress-item"></span><span style="
   background-color: #dea584; 
-  width: 27.775%;
+  width: 27.735%;
 " class="progress-item"></span><span style="
   background-color: #00add8; 
-  width: 17.653%;
+  width: 17.675%;
 " class="progress-item"></span><span style="
   background-color: #3178c6; 
-  width: 16.198%;
+  width: 16.233%;
 " class="progress-item"></span><span style="
   background-color: #89e051; 
-  width: 5.206%;
+  width: 5.237%;
 " class="progress-item"></span><span style="
   background-color: #ec915c; 
-  width: 1.058%;
+  width: 1.056%;
 " class="progress-item"></span><span style="
   background-color: #e34c26; 
-  width: 0.524%;
+  width: 0.523%;
 " class="progress-item"></span><span style="
   background-color: #563d7c; 
-  width: 0.255%;
+  width: 0.254%;
 " class="progress-item"></span><span style="
   background-color: #f1e05a; 
   width: 0.177%;
@@ -156,7 +156,7 @@ div.ellipsis {
   width: 0.171%;
 " class="progress-item"></span><span style="
   background-color: #844fba; 
-  width: 0.163%;
+  width: 0.170%;
 " class="progress-item"></span><span style="
   background-color: #e38c00; 
   width: 0.100%;
@@ -204,7 +204,7 @@ div.ellipsis {
       d="M8 4a4 4 0 100 8 4 4 0 000-8z"
   ></path></svg>
   <span class="lang">Python</span>
-  <span class="percent">30.55%</span>
+  <span class="percent">30.50%</span>
 </li>
 <li>
   <svg 
@@ -220,7 +220,7 @@ div.ellipsis {
       d="M8 4a4 4 0 100 8 4 4 0 000-8z"
   ></path></svg>
   <span class="lang">Rust</span>
-  <span class="percent">27.77%</span>
+  <span class="percent">27.73%</span>
 </li>
 <li>
   <svg 
@@ -236,7 +236,7 @@ div.ellipsis {
       d="M8 4a4 4 0 100 8 4 4 0 000-8z"
   ></path></svg>
   <span class="lang">Go</span>
-  <span class="percent">17.65%</span>
+  <span class="percent">17.67%</span>
 </li>
 <li>
   <svg 
@@ -252,7 +252,7 @@ div.ellipsis {
       d="M8 4a4 4 0 100 8 4 4 0 000-8z"
   ></path></svg>
   <span class="lang">TypeScript</span>
-  <span class="percent">16.20%</span>
+  <span class="percent">16.23%</span>
 </li>
 <li>
   <svg 
@@ -268,7 +268,7 @@ div.ellipsis {
       d="M8 4a4 4 0 100 8 4 4 0 000-8z"
   ></path></svg>
   <span class="lang">Shell</span>
-  <span class="percent">5.21%</span>
+  <span class="percent">5.24%</span>
 </li>
 <li>
   <svg 
@@ -364,7 +364,7 @@ div.ellipsis {
       d="M8 4a4 4 0 100 8 4 4 0 000-8z"
   ></path></svg>
   <span class="lang">HCL</span>
-  <span class="percent">0.16%</span>
+  <span class="percent">0.17%</span>
 </li>
 <li>
   <svg 
