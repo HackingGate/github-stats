@@ -212,16 +212,12 @@ and passes them to the CLI as `ORG_ACCESS_TOKENS` (comma-separated).
 
 ## Aggregate `stats.json`
 
-Besides the SVGs, every run writes `stats.json` (override the path with
-`--stats-json-output-file`) and the workflow publishes it on the `generated`
-branch. It holds the same aggregates the SVGs show, and nothing else: no
-repository, organization, owner, user, or URL strings, so it is safe to publish
-even when private repositories are counted. Only language names appear as text.
-A unit test (`zig build test`) enforces this, and the workflow runs it before
-publishing.
-
-Stable URL:
-<https://raw.githubusercontent.com/HackingGate/github-stats/generated/stats.json>
+`--stats-json-output-file PATH` writes the aggregates behind the SVGs as JSON.
+It is opt-in and the workflow here does not publish it: when private
+repositories are counted, the totals describe them, so the file belongs in a
+place only its owner can read. It holds no repository, organization, owner,
+user, or URL strings; only language names appear as text. A unit test
+(`zig build test`) enforces this.
 
 ``` json
 {

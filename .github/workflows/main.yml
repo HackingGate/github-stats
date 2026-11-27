@@ -92,7 +92,7 @@ jobs:
     # Checkout does not persist credentials, so authenticate only the push
     - name: Commit to the repo
       run: |
-        git add overview.svg languages.svg stats.json
+        git add overview.svg languages.svg
         # Force the build to succeed, even if no files were changed
         git commit -m 'Update generated files' || true
         gh auth setup-git

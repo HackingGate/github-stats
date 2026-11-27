@@ -506,15 +506,19 @@ pub fn main(init: std.process.Init) !void {
             ),
         );
 
-        try writeFile(
-            io,
-            args.stats_json_output_file orelse "stats.json",
-            try statsJson(
-                &arena,
-                aggregate_stats,
-                std.Io.Clock.real.now(io).toSeconds(),
-            ),
-        );
+        // Opt-in: the totals include private repositories, so the file is
+        // written only where a caller asked for it and can keep it private.
+        if (args.stats_json_output_file) |path| {
+            try writeFile(
+                io,
+                path,
+                try statsJson(
+                    &arena,
+                    aggregate_stats,
+                    std.Io.Clock.real.now(io).toSeconds(),
+                ),
+            );
+        }
     }
 }
 
