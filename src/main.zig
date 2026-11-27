@@ -53,6 +53,7 @@ const Args = struct {
     owned_only_stars_forks: bool = false,
     overview_output_file: ?[]const u8 = null,
     languages_output_file: ?[]const u8 = null,
+    stats_json_output_file: ?[]const u8 = null,
     overview_template: ?[]const u8 = null,
     languages_template: ?[]const u8 = null,
     max_retries: ?usize = 25,
@@ -171,6 +172,79 @@ fn languages(
             .progress = try std.mem.concat(a, u8, progress),
         },
     );
+}
+
+/// Public, aggregate-only summary. Every field is a number, a date, or a
+/// language name. Never add repository, organization, owner, user, or URL
+/// fields here: this file is published from data that includes private
+/// repositories. A test below enforces this.
+const schema_version: u32 = 1;
+
+const StatsJson = struct {
+    schema_version: u32,
+    collected_at: []const u8,
+    window: struct {
+        contributions: []const u8 = "all_time",
+        views: []const u8 = "traffic_14_days",
+    } = .{},
+    totals: struct {
+        stars: usize,
+        forks: usize,
+        contributions: usize,
+        lines_changed: usize,
+        views: usize,
+        repository_count: usize,
+    },
+    languages: []const struct {
+        name: []const u8,
+        share_percent: f64,
+        lines_changed: u64,
+    },
+};
+
+fn statsJson(
+    arena: *std.heap.ArenaAllocator,
+    stats: AggregateStats,
+    timestamp: i64,
+) ![]const u8 {
+    const a = arena.allocator();
+    const day = (std.time.epoch.EpochSeconds{
+        .secs = @intCast(@max(timestamp, 0)),
+    }).getEpochDay();
+    const year_day = day.calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+    const collected_at = try std.fmt.allocPrint(
+        a,
+        "{d:0>4}-{d:0>2}-{d:0>2}",
+        .{ year_day.year, month_day.month.numeric(), month_day.day_index + 1 },
+    );
+
+    const Lang = @typeInfo(@FieldType(StatsJson, "languages")).pointer.child;
+    const langs = try a.alloc(Lang, stats.languages.count());
+    for (stats.languages.keys(), stats.languages.values(), langs) |k, v, *l| {
+        l.* = .{
+            .name = k,
+            .share_percent = if (stats.languages_total == 0)
+                0.0
+            else
+                @round(1e4 * @as(f64, @floatFromInt(v)) /
+                    @as(f64, @floatFromInt(stats.languages_total))) / 1e2,
+            .lines_changed = v,
+        };
+    }
+    return std.json.Stringify.valueAlloc(a, StatsJson{
+        .schema_version = schema_version,
+        .collected_at = collected_at,
+        .totals = .{
+            .stars = stats.stars,
+            .forks = stats.forks,
+            .contributions = stats.contributions,
+            .lines_changed = stats.lines_changed,
+            .views = stats.views,
+            .repository_count = stats.repos,
+        },
+        .languages = langs,
+    }, .{ .whitespace = .indent_2 });
 }
 
 const AggregateStats = struct {
@@ -431,6 +505,16 @@ pub fn main(init: std.process.Init) !void {
                     embedded_languages_template,
             ),
         );
+
+        try writeFile(
+            io,
+            args.stats_json_output_file orelse "stats.json",
+            try statsJson(
+                &arena,
+                aggregate_stats,
+                std.Io.Clock.real.now(io).toSeconds(),
+            ),
+        );
     }
 }
 
@@ -646,4 +730,91 @@ fn splitList(
         try list.append(allocator, std.mem.trim(u8, pattern, " "));
     }
     return try list.toOwnedSlice(allocator);
+}
+
+test "stats.json contains aggregates only and no repository or org names" {
+    const json =
+        \\{
+        \\  "repositories": [
+        \\    {
+        \\      "name": "secret-org/private-repo",
+        \\      "stars": 3, "forks": 1,
+        \\      "languages": [{ "name": "Rust", "size": 10, "color": "#dea584" }],
+        \\      "contribution_languages": [
+        \\        { "name": "Zig", "color": "#ec915c", "lines_changed": 30 }
+        \\      ],
+        \\      "lines_changed": 30, "views": 7, "private": true
+        \\    },
+        \\    {
+        \\      "name": "octo/public-repo",
+        \\      "stars": 2, "forks": 0,
+        \\      "languages": null,
+        \\      "contribution_languages": [
+        \\        { "name": "C", "color": "#555555", "lines_changed": 10 }
+        \\      ],
+        \\      "lines_changed": 10, "views": 1, "private": false
+        \\    }
+        \\  ],
+        \\  "user": "octo-login",
+        \\  "name": "Octo Cat",
+        \\  "emails": ["octo@example.com"],
+        \\  "repo_contributions": 1, "issue_contributions": 2,
+        \\  "commit_contributions": 3, "pr_contributions": 4,
+        \\  "review_contributions": 5
+        \\}
+    ;
+    var stats = try Statistics.initFromJson(std.testing.allocator, json);
+    defer stats.deinit(std.testing.allocator);
+    var aggregate_stats = try aggregateStats(
+        std.testing.allocator,
+        stats,
+        &.{},
+        &.{},
+        false,
+        false,
+    );
+    defer aggregate_stats.deinit(std.testing.allocator);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // 2024-02-29T12:00:00Z
+    const out = try statsJson(&arena, aggregate_stats, 1709208000);
+
+    // No identifying strings, URLs, or path separators anywhere.
+    for ([_][]const u8{
+        "secret", "private-repo", "public-repo",  "octo", "Octo",    "example.com",
+        "http",   "github",       "/",            "@",    "private", "owner",
+        "emails", "user",         "repositories",
+    }) |needle| {
+        try std.testing.expect(std.mem.indexOf(u8, out, needle) == null);
+    }
+
+    // Exact key whitelist.
+    const parsed = try std.json.parseFromSliceLeaky(
+        std.json.Value,
+        arena.allocator(),
+        out,
+        .{},
+    );
+    const root = parsed.object;
+    try std.testing.expectEqual(@as(usize, 5), root.count());
+    for ([_][]const u8{
+        "schema_version", "collected_at", "window", "totals", "languages",
+    }) |k| try std.testing.expect(root.contains(k));
+    try std.testing.expectEqual(@as(usize, 6), root.get("totals").?.object.count());
+    try std.testing.expectEqual(@as(usize, 2), root.get("window").?.object.count());
+    for (root.get("languages").?.array.items) |l| {
+        try std.testing.expectEqual(@as(usize, 3), l.object.count());
+    }
+
+    // Values.
+    try std.testing.expectEqualStrings("2024-02-29", root.get("collected_at").?.string);
+    const totals = root.get("totals").?.object;
+    try std.testing.expectEqual(@as(i64, 5), totals.get("stars").?.integer);
+    try std.testing.expectEqual(@as(i64, 15), totals.get("contributions").?.integer);
+    try std.testing.expectEqual(@as(i64, 40), totals.get("lines_changed").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), totals.get("repository_count").?.integer);
+    const zig = root.get("languages").?.array.items[0].object;
+    try std.testing.expectEqualStrings("Zig", zig.get("name").?.string);
+    try std.testing.expectEqual(@as(i64, 75), zig.get("share_percent").?.integer);
 }

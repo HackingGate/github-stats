@@ -27,6 +27,12 @@ jobs:
       with:
         version: 0.16.0
 
+    # Includes the test that stats.json holds aggregates only (no repo or
+    # organization names); a failure here stops publication.
+    - name: Test
+      run: |
+        zig build test
+
     - name: Build
       run: |
         zig build
@@ -86,7 +92,7 @@ jobs:
     # Checkout does not persist credentials, so authenticate only the push
     - name: Commit to the repo
       run: |
-        git add overview.svg languages.svg
+        git add overview.svg languages.svg stats.json
         # Force the build to succeed, even if no files were changed
         git commit -m 'Update generated files' || true
         gh auth setup-git
