@@ -210,6 +210,46 @@ and passes them to the CLI as `ORG_ACCESS_TOKENS` (comma-separated).
    installations on organizations not in `STATS_APP_ORGS` are ignored.
 
 
+## Aggregate `stats.json`
+
+`--stats-json-output-file PATH` writes the aggregates behind the SVGs as JSON.
+It is opt-in and the workflow here does not publish it: when private
+repositories are counted, the totals describe them, so the file belongs in a
+place only its owner can read. It holds no repository, organization, owner,
+user, or URL strings; only language names appear as text. A unit test
+(`zig build test`) enforces this.
+
+``` json
+{
+  "schema_version": 1,
+  "collected_at": "2026-01-31",
+  "window": { "contributions": "all_time", "views": "traffic_14_days" },
+  "totals": {
+    "stars": 120,
+    "forks": 15,
+    "contributions": 4321,
+    "lines_changed": 987654,
+    "views": 2345,
+    "repository_count": 42
+  },
+  "languages": [
+    { "name": "Zig", "share_percent": 61.25, "lines_changed": 60000 },
+    { "name": "Rust", "share_percent": 38.75, "lines_changed": 37950 }
+  ]
+}
+```
+
+- `schema_version`: integer, bumped on breaking changes.
+- `collected_at`: UTC date (`YYYY-MM-DD`) the file was generated.
+- `window`: contributions cover all years on the account; views come from
+  GitHub's traffic API (a trailing 14-day count, cached per repository).
+- `totals`: the numbers shown in `overview.svg`, after the same exclusions
+  (`EXCLUDE_REPOS`, `EXCLUDE_PRIVATE`, and so on).
+- `languages`: sorted by size, as in `languages.svg`. `lines_changed` is the
+  contributor's changed lines in that language (not repository bytes) and
+  `share_percent` is its share of the total, rounded to two decimals.
+
+
 ## Analyzing the Data
 
 Using the `github-stats` CLI (available on the
